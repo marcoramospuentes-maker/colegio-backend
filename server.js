@@ -327,9 +327,38 @@ app.get('/', (req, res) => {
             direcciones: '/api/direcciones',
             ocupaciones: '/api/ocupaciones',
             especialidades: '/api/especialidades',
-            horarios: '/api/horarios'
+            horarios: '/api/horarios',
+            verificar: '/api/verificar-tablas'
         }
     });
+});
+
+// ========== VERIFICAR TABLAS (para debug) ==========
+app.get('/api/verificar-tablas', async (req, res) => {
+    try {
+        const [estudiantes] = await pool.query('SELECT * FROM Estudiantes');
+        const [direcciones] = await pool.query('SELECT * FROM Direccion');
+        const [direccionEstudiante] = await pool.query('SELECT * FROM Direccion_Estudiante');
+        const [lugares] = await pool.query('SELECT * FROM Lugar');
+        const [lugarEstudiante] = await pool.query('SELECT * FROM Lugar_Estudiante');
+        const [padres] = await pool.query('SELECT * FROM Padre');
+        const [estudiantePadre] = await pool.query('SELECT * FROM Estudiante_Padre');
+        
+        res.json({
+            mensaje: 'Contenido de las tablas relacionales de Estudiantes',
+            tablas: {
+                '1_Estudiantes (datos personales)': estudiantes,
+                '2_Direccion (direcciones)': direcciones,
+                '3_Direccion_Estudiante (relacion)': direccionEstudiante,
+                '4_Lugar (lugares de nacimiento)': lugares,
+                '5_Lugar_Estudiante (relacion)': lugarEstudiante,
+                '6_Padre (padres)': padres,
+                '7_Estudiante_Padre (relacion)': estudiantePadre
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
 // ========== RESET TABLAS (TEMPORAL) ==========

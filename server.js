@@ -318,6 +318,44 @@ app.get('/', (req, res) => {
     });
 });
 
+// ========== RESET TABLAS (TEMPORAL) ==========
+app.get('/api/reset-tablas', async (req, res) => {
+    try {
+        const connection = await pool.getConnection();
+        
+        // Desactivar verificación de foreign keys
+        await connection.query('SET FOREIGN_KEY_CHECKS = 0');
+        
+        // Eliminar tablas existentes
+        const tablasEliminar = [
+            'Detalle_Calificacion', 'Detalle_Matricula', 'Detalle_Ocupacion',
+            'Direccion_Estudiante', 'Lugar_Nacimiento_Estudiante', 'Profesor_Especialidad',
+            'Profesor_Materia', 'Detalle_Seccion', 'Detalle_Carga_Horaria',
+            'Calificacion', 'Pago', 'Matricula', 'Materia', 'Profesor', 'Padre', 'Estudiantes',
+            'Carga_Horaria', 'Seccion', 'Periodo_Academico', 'Especialidad', 'Grado',
+            'Ocupacion', 'Direccion', 'Lugar'
+        ];
+        
+        for (const tabla of tablasEliminar) {
+            try {
+                await connection.query(`DROP TABLE IF EXISTS ${tabla}`);
+            } catch (e) {}
+        }
+        
+        // Reactivar verificación de foreign keys
+        await connection.query('SET FOREIGN_KEY_CHECKS = 1');
+        
+        connection.release();
+        
+        // Recrear tablas
+        await crearTablas();
+        
+        res.json({ message: 'Tablas recreadas correctamente con el nuevo esquema normalizado' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // ========== ESTUDIANTES ==========
 app.get('/api/estudiantes', async (req, res) => {
     try {

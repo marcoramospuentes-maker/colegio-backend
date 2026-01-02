@@ -289,6 +289,18 @@ async function crearTablas() {
             )
         `);
 
+        // Tabla Estudiante_Padre (relación entre estudiante y padre/apoderado)
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS Estudiante_Padre (
+                DNI_estudiante VARCHAR(20),
+                DNI_padre INT,
+                Parentesco VARCHAR(50) DEFAULT 'Padre/Madre',
+                PRIMARY KEY (DNI_estudiante, DNI_padre),
+                FOREIGN KEY (DNI_estudiante) REFERENCES Estudiantes(DNI_estudiante) ON DELETE CASCADE,
+                FOREIGN KEY (DNI_padre) REFERENCES Padre(DNI_padre) ON DELETE CASCADE
+            )
+        `);
+
         connection.release();
         console.log('✅ Todas las tablas verificadas/creadas (22 tablas normalizadas)');
     } catch (error) {
@@ -334,9 +346,9 @@ app.get('/api/reset-tablas', async (req, res) => {
         
         // Eliminar tablas existentes
         const tablasEliminar = [
-            'Detalle_Calificacion', 'Detalle_Matricula', 'Detalle_Ocupacion',
+            'Estudiante_Padre', 'Detalle_Calificacion', 'Detalle_Matricula', 'Detalle_Ocupacion',
             'Direccion_Estudiante', 'Lugar_Nacimiento_Estudiante', 'Profesor_Especialidad',
-            'Profesor_Materia', 'Detalle_Seccion', 'Detalle_Carga_Horaria',
+            'Profesor_Materia', 'Detalle_Seccion', 'Detalle_Carga_Horaria', 'Profesor_Horario',
             'Calificacion', 'Pago', 'Matricula', 'Materia', 'Profesor', 'Padre', 'Estudiantes',
             'Carga_Horaria', 'Seccion', 'Periodo_Academico', 'Especialidad', 'Grado',
             'Ocupacion', 'Direccion', 'Lugar'
@@ -365,7 +377,13 @@ app.get('/api/reset-tablas', async (req, res) => {
 // ========== ESTUDIANTES ==========
 app.get('/api/estudiantes', async (req, res) => {
     try {
-        const [rows] = await pool.query('SELECT * FROM Estudiantes');
+        const [rows] = await pool.query(`
+            SELECT e.*, ep.DNI_padre, 
+                   CONCAT(p.Nombre_padre, ' ', p.ApellidoPaterno_padre) as Nombre_padre
+            FROM Estudiantes e
+            LEFT JOIN Estudiante_Padre ep ON e.DNI_estudiante = ep.DNI_estudiante
+            LEFT JOIN Padre p ON ep.DNI_padre = p.DNI_padre
+        `);
         res.json(rows);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -384,11 +402,22 @@ app.get('/api/estudiantes/:dni', async (req, res) => {
 
 app.post('/api/estudiantes', async (req, res) => {
     try {
-        const { DNI_estudiante, Nombre_estudiante, ApellidoPaterno_estudiante, ApellidoMaterno_estudiante, Sexo, Fecha_nacimiento, Provincia, Distrito, Manzana, Lote, Calle, Referencia } = req.body;
+        const { DNI_estudiante, Nombre_estudiante, ApellidoPaterno_estudiante, ApellidoMaterno_estudiante, Sexo, Fecha_nacimiento, Provincia, Distrito, Manzana, Lote, Calle, Referencia, DNI_padre } = req.body;
+        
+        // Insertar estudiante
         await pool.query(
             'INSERT INTO Estudiantes (DNI_estudiante, Nombre_estudiante, ApellidoPaterno_estudiante, ApellidoMaterno_estudiante, Sexo, Fecha_nacimiento, Provincia, Distrito, Manzana, Lote, Calle, Referencia) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [DNI_estudiante, Nombre_estudiante, ApellidoPaterno_estudiante, ApellidoMaterno_estudiante, Sexo, Fecha_nacimiento, Provincia || null, Distrito || null, Manzana || null, Lote || null, Calle || null, Referencia || null]
         );
+        
+        // Si se proporcionó un padre, crear la relación
+        if (DNI_padre) {
+            await pool.query(
+                'INSERT INTO Estudiante_Padre (DNI_estudiante, DNI_padre) VALUES (?, ?)',
+                [DNI_estudiante, DNI_padre]
+            );
+        }
+        
         res.status(201).json({ dni: DNI_estudiante, message: 'Estudiante creado' });
     } catch (error) {
         if (error.code === 'ER_DUP_ENTRY') {
@@ -401,11 +430,22 @@ app.post('/api/estudiantes', async (req, res) => {
 
 app.put('/api/estudiantes/:dni', async (req, res) => {
     try {
-        const { Nombre_estudiante, ApellidoPaterno_estudiante, ApellidoMaterno_estudiante, Sexo, Fecha_nacimiento, Provincia, Distrito, Manzana, Lote, Calle, Referencia } = req.body;
+        const { Nombre_estudiante, ApellidoPaterno_estudiante, ApellidoMaterno_estudiante, Sexo, Fecha_nacimiento, Provincia, Distrito, Manzana, Lote, Calle, Referencia, DNI_padre } = req.body;
+        
+        // Actualizar datos del estudiante
         await pool.query(
             'UPDATE Estudiantes SET Nombre_estudiante=?, ApellidoPaterno_estudiante=?, ApellidoMaterno_estudiante=?, Sexo=?, Fecha_nacimiento=?, Provincia=?, Distrito=?, Manzana=?, Lote=?, Calle=?, Referencia=? WHERE DNI_estudiante=?',
             [Nombre_estudiante, ApellidoPaterno_estudiante, ApellidoMaterno_estudiante, Sexo, Fecha_nacimiento, Provincia || null, Distrito || null, Manzana || null, Lote || null, Calle || null, Referencia || null, req.params.dni]
         );
+        
+        // Actualizar relación con padre
+        if (DNI_padre) {
+            // Eliminar relación anterior
+            await pool.query('DELETE FROM Estudiante_Padre WHERE DNI_estudiante = ?', [req.params.dni]);
+            // Crear nueva relación
+            await pool.query('INSERT INTO Estudiante_Padre (DNI_estudiante, DNI_padre) VALUES (?, ?)', [req.params.dni, DNI_padre]);
+        }
+        
         res.json({ message: 'Estudiante actualizado' });
     } catch (error) {
         res.status(500).json({ error: error.message });

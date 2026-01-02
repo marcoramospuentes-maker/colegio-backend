@@ -343,17 +343,23 @@ app.get('/api/verificar-tablas', async (req, res) => {
         const [lugarEstudiante] = await pool.query('SELECT * FROM Lugar_Estudiante');
         const [padres] = await pool.query('SELECT * FROM Padre');
         const [estudiantePadre] = await pool.query('SELECT * FROM Estudiante_Padre');
+        const [ocupaciones] = await pool.query('SELECT * FROM Ocupacion');
+        const [detalleOcupacion] = await pool.query('SELECT * FROM Detalle_Ocupacion');
         
         res.json({
-            mensaje: 'Contenido de las tablas relacionales de Estudiantes',
+            mensaje: 'Contenido de las tablas relacionales',
             tablas: {
+                '=== ESTUDIANTES ===': '---',
                 '1_Estudiantes (datos personales)': estudiantes,
                 '2_Direccion (direcciones)': direcciones,
                 '3_Direccion_Estudiante (relacion)': direccionEstudiante,
                 '4_Lugar (lugares de nacimiento)': lugares,
                 '5_Lugar_Estudiante (relacion)': lugarEstudiante,
-                '6_Padre (padres)': padres,
-                '7_Estudiante_Padre (relacion)': estudiantePadre
+                '6_Estudiante_Padre (relacion)': estudiantePadre,
+                '=== PADRES ===': '---',
+                '7_Padre (datos del padre)': padres,
+                '8_Ocupacion (ocupaciones)': ocupaciones,
+                '9_Detalle_Ocupacion (relacion padre-ocupacion)': detalleOcupacion
             }
         });
     } catch (error) {
@@ -731,18 +737,31 @@ app.delete('/api/estudiantes/:dni', async (req, res) => {
 });
 
 // ========== PADRES ==========
+// GET todos los padres con su ocupación
 app.get('/api/padres', async (req, res) => {
     try {
-        const [rows] = await pool.query('SELECT * FROM Padre');
+        const [rows] = await pool.query(`
+            SELECT p.*, o.Ocupacion 
+            FROM Padre p
+            LEFT JOIN Detalle_Ocupacion do ON p.DNI_padre = do.DNI_padre
+            LEFT JOIN Ocupacion o ON do.Id_Ocupacion = o.Id_Ocupacion
+        `);
         res.json(rows);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
+// GET un padre específico con su ocupación
 app.get('/api/padres/:dni', async (req, res) => {
     try {
-        const [rows] = await pool.query('SELECT * FROM Padre WHERE DNI_padre = ?', [req.params.dni]);
+        const [rows] = await pool.query(`
+            SELECT p.*, o.Ocupacion 
+            FROM Padre p
+            LEFT JOIN Detalle_Ocupacion do ON p.DNI_padre = do.DNI_padre
+            LEFT JOIN Ocupacion o ON do.Id_Ocupacion = o.Id_Ocupacion
+            WHERE p.DNI_padre = ?
+        `, [req.params.dni]);
         if (rows.length === 0) return res.status(404).json({ error: 'Padre no encontrado' });
         res.json(rows[0]);
     } catch (error) {
@@ -750,38 +769,138 @@ app.get('/api/padres/:dni', async (req, res) => {
     }
 });
 
+// POST nuevo padre con ocupación (transacción)
 app.post('/api/padres', async (req, res) => {
+    const connection = await pool.getConnection();
     try {
-        const { DNI_padre, Nombre_padre, ApellidoPaterno_padre, ApellidoMaterno_padre, Telefono_padre } = req.body;
-        await pool.query(
+        await connection.beginTransaction();
+        
+        const { DNI_padre, Nombre_padre, ApellidoPaterno_padre, ApellidoMaterno_padre, Telefono_padre, Ocupacion } = req.body;
+        
+        // 1. Insertar en tabla Padre
+        await connection.query(
             'INSERT INTO Padre (DNI_padre, Nombre_padre, ApellidoPaterno_padre, ApellidoMaterno_padre, Telefono_padre) VALUES (?, ?, ?, ?, ?)',
             [DNI_padre, Nombre_padre, ApellidoPaterno_padre, ApellidoMaterno_padre, Telefono_padre]
         );
-        res.status(201).json({ message: 'Padre registrado' });
+        
+        // 2. Si hay ocupación, insertar en Ocupacion y Detalle_Ocupacion
+        if (Ocupacion && Ocupacion.trim() !== '') {
+            // Verificar si la ocupación ya existe
+            const [existingOcupacion] = await connection.query(
+                'SELECT Id_Ocupacion FROM Ocupacion WHERE Ocupacion = ?',
+                [Ocupacion.trim()]
+            );
+            
+            let ocupacionId;
+            if (existingOcupacion.length > 0) {
+                ocupacionId = existingOcupacion[0].Id_Ocupacion;
+            } else {
+                // Crear nueva ocupación
+                const [resultOcupacion] = await connection.query(
+                    'INSERT INTO Ocupacion (Ocupacion) VALUES (?)',
+                    [Ocupacion.trim()]
+                );
+                ocupacionId = resultOcupacion.insertId;
+            }
+            
+            // Crear relación en Detalle_Ocupacion
+            await connection.query(
+                'INSERT INTO Detalle_Ocupacion (DNI_padre, Id_Ocupacion) VALUES (?, ?)',
+                [DNI_padre, ocupacionId]
+            );
+        }
+        
+        await connection.commit();
+        res.status(201).json({ message: 'Padre registrado correctamente' });
     } catch (error) {
+        await connection.rollback();
         res.status(500).json({ error: error.message });
+    } finally {
+        connection.release();
     }
 });
 
+// PUT actualizar padre con ocupación (transacción)
 app.put('/api/padres/:dni', async (req, res) => {
+    const connection = await pool.getConnection();
     try {
-        const { Nombre_padre, ApellidoPaterno_padre, ApellidoMaterno_padre, Telefono_padre } = req.body;
-        await pool.query(
+        await connection.beginTransaction();
+        
+        const { Nombre_padre, ApellidoPaterno_padre, ApellidoMaterno_padre, Telefono_padre, Ocupacion } = req.body;
+        const dni = req.params.dni;
+        
+        // 1. Actualizar tabla Padre
+        await connection.query(
             'UPDATE Padre SET Nombre_padre=?, ApellidoPaterno_padre=?, ApellidoMaterno_padre=?, Telefono_padre=? WHERE DNI_padre=?',
-            [Nombre_padre, ApellidoPaterno_padre, ApellidoMaterno_padre, Telefono_padre, req.params.dni]
+            [Nombre_padre, ApellidoPaterno_padre, ApellidoMaterno_padre, Telefono_padre, dni]
         );
-        res.json({ message: 'Padre actualizado' });
+        
+        // 2. Eliminar ocupación anterior del padre
+        await connection.query('DELETE FROM Detalle_Ocupacion WHERE DNI_padre = ?', [dni]);
+        
+        // 3. Si hay ocupación nueva, insertar
+        if (Ocupacion && Ocupacion.trim() !== '') {
+            // Verificar si la ocupación ya existe
+            const [existingOcupacion] = await connection.query(
+                'SELECT Id_Ocupacion FROM Ocupacion WHERE Ocupacion = ?',
+                [Ocupacion.trim()]
+            );
+            
+            let ocupacionId;
+            if (existingOcupacion.length > 0) {
+                ocupacionId = existingOcupacion[0].Id_Ocupacion;
+            } else {
+                // Crear nueva ocupación
+                const [resultOcupacion] = await connection.query(
+                    'INSERT INTO Ocupacion (Ocupacion) VALUES (?)',
+                    [Ocupacion.trim()]
+                );
+                ocupacionId = resultOcupacion.insertId;
+            }
+            
+            // Crear relación en Detalle_Ocupacion
+            await connection.query(
+                'INSERT INTO Detalle_Ocupacion (DNI_padre, Id_Ocupacion) VALUES (?, ?)',
+                [dni, ocupacionId]
+            );
+        }
+        
+        await connection.commit();
+        res.json({ message: 'Padre actualizado correctamente' });
     } catch (error) {
+        await connection.rollback();
         res.status(500).json({ error: error.message });
+    } finally {
+        connection.release();
     }
 });
 
+// DELETE padre (eliminar relaciones primero)
 app.delete('/api/padres/:dni', async (req, res) => {
+    const connection = await pool.getConnection();
     try {
-        await pool.query('DELETE FROM Padre WHERE DNI_padre = ?', [req.params.dni]);
-        res.json({ message: 'Padre eliminado' });
+        await connection.beginTransaction();
+        const dni = req.params.dni;
+        
+        // 1. Eliminar de Detalle_Ocupacion
+        await connection.query('DELETE FROM Detalle_Ocupacion WHERE DNI_padre = ?', [dni]);
+        
+        // 2. Eliminar de Estudiante_Padre
+        await connection.query('DELETE FROM Estudiante_Padre WHERE DNI_padre = ?', [dni]);
+        
+        // 3. Eliminar de Direccion_Estudiante (donde sea el padre)
+        await connection.query('DELETE FROM Direccion_Estudiante WHERE DNI_padre = ?', [dni]);
+        
+        // 4. Eliminar el padre
+        await connection.query('DELETE FROM Padre WHERE DNI_padre = ?', [dni]);
+        
+        await connection.commit();
+        res.json({ message: 'Padre eliminado correctamente' });
     } catch (error) {
+        await connection.rollback();
         res.status(500).json({ error: error.message });
+    } finally {
+        connection.release();
     }
 });
 

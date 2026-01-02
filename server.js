@@ -431,11 +431,8 @@ app.get('/', (req, res) => {
 });
 
 // Iniciar el servidor y crear tablas
-async function iniciar() {
-    await crearTablas();
-    app.listen(PORT, () => {
-        console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
-    });
-}
-
-iniciar();
+app.listen(PORT, () => {
+    console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
+    // Crear tablas después de que el servidor inicie
+    crearTablas();
+});

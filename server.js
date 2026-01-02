@@ -188,10 +188,10 @@ async function crearTablas() {
         await connection.query(`
             CREATE TABLE IF NOT EXISTS Lugar_Nacimiento_Estudiante (
                 Id_lugar INT,
-                Codigo_estudiante INT,
-                PRIMARY KEY (Id_lugar, Codigo_estudiante),
+                DNI_estudiante VARCHAR(20),
+                PRIMARY KEY (Id_lugar, DNI_estudiante),
                 FOREIGN KEY (Id_lugar) REFERENCES Lugar(Id_lugar),
-                FOREIGN KEY (Codigo_estudiante) REFERENCES Estudiantes(Codigo_estudiante)
+                FOREIGN KEY (DNI_estudiante) REFERENCES Estudiantes(DNI_estudiante)
             )
         `);
 

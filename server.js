@@ -103,7 +103,7 @@ async function crearTablas() {
 
         // ========== TABLAS PRINCIPALES ==========
 
-        // Tabla Estudiantes
+        // Tabla Estudiantes (SOLO datos personales - sin dirección según modelo físico)
         await connection.query(`
             CREATE TABLE IF NOT EXISTS Estudiantes (
                 DNI_estudiante VARCHAR(20) PRIMARY KEY,
@@ -111,13 +111,7 @@ async function crearTablas() {
                 ApellidoPaterno_estudiante VARCHAR(100) NOT NULL,
                 ApellidoMaterno_estudiante VARCHAR(100) NOT NULL,
                 Sexo CHAR(1) NOT NULL,
-                Fecha_nacimiento DATE NOT NULL,
-                Provincia VARCHAR(100),
-                Distrito VARCHAR(100),
-                Manzana VARCHAR(20),
-                Lote VARCHAR(20),
-                Calle VARCHAR(200),
-                Referencia VARCHAR(200)
+                Fecha_nacimiento DATE NOT NULL
             )
         `);
 
@@ -184,25 +178,27 @@ async function crearTablas() {
 
         // ========== TABLAS DE RELACIÓN ==========
 
-        // Tabla Lugar_Nacimiento_Estudiante
+        // Tabla Direccion_Estudiante (relaciona Estudiante con Dirección)
         await connection.query(`
-            CREATE TABLE IF NOT EXISTS Lugar_Nacimiento_Estudiante (
-                Id_lugar INT,
+            CREATE TABLE IF NOT EXISTS Direccion_Estudiante (
                 DNI_estudiante VARCHAR(20),
-                PRIMARY KEY (Id_lugar, DNI_estudiante),
-                FOREIGN KEY (Id_lugar) REFERENCES Lugar(Id_lugar),
-                FOREIGN KEY (DNI_estudiante) REFERENCES Estudiantes(DNI_estudiante)
+                Id_Direccion INT,
+                DNI_padre INT,
+                PRIMARY KEY (DNI_estudiante, Id_Direccion),
+                FOREIGN KEY (DNI_estudiante) REFERENCES Estudiantes(DNI_estudiante) ON DELETE CASCADE,
+                FOREIGN KEY (Id_Direccion) REFERENCES Direccion(Id_Direccion) ON DELETE CASCADE,
+                FOREIGN KEY (DNI_padre) REFERENCES Padre(DNI_padre)
             )
         `);
 
-        // Tabla Direccion_Estudiante (relacionada con Padre)
+        // Tabla Lugar_Estudiante (relaciona Estudiante con Lugar de nacimiento)
         await connection.query(`
-            CREATE TABLE IF NOT EXISTS Direccion_Estudiante (
-                DNI_padre INT,
-                Id_Direccion INT,
-                PRIMARY KEY (DNI_padre, Id_Direccion),
-                FOREIGN KEY (DNI_padre) REFERENCES Padre(DNI_padre),
-                FOREIGN KEY (Id_Direccion) REFERENCES Direccion(Id_Direccion)
+            CREATE TABLE IF NOT EXISTS Lugar_Estudiante (
+                DNI_estudiante VARCHAR(20),
+                Id_lugar INT,
+                PRIMARY KEY (DNI_estudiante, Id_lugar),
+                FOREIGN KEY (DNI_estudiante) REFERENCES Estudiantes(DNI_estudiante) ON DELETE CASCADE,
+                FOREIGN KEY (Id_lugar) REFERENCES Lugar(Id_lugar) ON DELETE CASCADE
             )
         `);
 
@@ -346,9 +342,10 @@ app.get('/api/reset-tablas', async (req, res) => {
         
         // Eliminar tablas existentes
         const tablasEliminar = [
-            'Estudiante_Padre', 'Detalle_Calificacion', 'Detalle_Matricula', 'Detalle_Ocupacion',
-            'Direccion_Estudiante', 'Lugar_Nacimiento_Estudiante', 'Profesor_Especialidad',
-            'Profesor_Materia', 'Detalle_Seccion', 'Detalle_Carga_Horaria', 'Profesor_Horario',
+            'Estudiante_Padre', 'Lugar_Estudiante', 'Direccion_Estudiante',
+            'Detalle_Calificacion', 'Detalle_Matricula', 'Detalle_Ocupacion',
+            'Lugar_Nacimiento_Estudiante', 'Profesor_Especialidad',
+            'Profesor_Materia', 'Detalle_Seccion', 'Detalle_Horario_Seccion', 'Profesor_Horario',
             'Calificacion', 'Pago', 'Matricula', 'Materia', 'Profesor', 'Padre', 'Estudiantes',
             'Carga_Horaria', 'Seccion', 'Periodo_Academico', 'Especialidad', 'Grado',
             'Ocupacion', 'Direccion', 'Lugar'
@@ -375,34 +372,70 @@ app.get('/api/reset-tablas', async (req, res) => {
 });
 
 // ========== ESTUDIANTES ==========
+// GET - Obtener todos los estudiantes con sus relaciones
 app.get('/api/estudiantes', async (req, res) => {
     try {
-        // Primero intentar obtener con el padre relacionado
-        let rows;
-        try {
-            const [result] = await pool.query(`
-                SELECT e.*, ep.DNI_padre, 
-                       CONCAT(p.Nombre_padre, ' ', p.ApellidoPaterno_padre) as Nombre_padre
-                FROM Estudiantes e
-                LEFT JOIN Estudiante_Padre ep ON e.DNI_estudiante = ep.DNI_estudiante
-                LEFT JOIN Padre p ON ep.DNI_padre = p.DNI_padre
-            `);
-            rows = result;
-        } catch (joinError) {
-            // Si falla el JOIN, obtener solo estudiantes
-            console.log('JOIN falló, obteniendo solo estudiantes:', joinError.message);
-            const [result] = await pool.query('SELECT * FROM Estudiantes');
-            rows = result;
-        }
+        const [rows] = await pool.query(`
+            SELECT 
+                e.DNI_estudiante,
+                e.Nombre_estudiante,
+                e.ApellidoPaterno_estudiante,
+                e.ApellidoMaterno_estudiante,
+                e.Sexo,
+                e.Fecha_nacimiento,
+                ep.DNI_padre,
+                CONCAT(p.Nombre_padre, ' ', p.ApellidoPaterno_padre) as Nombre_padre,
+                p.ApellidoPaterno_padre,
+                d.Provincia,
+                d.Distrito,
+                d.Manzana,
+                d.Lote,
+                d.Calle,
+                d.Referencia,
+                l.lugar as Lugar_nacimiento
+            FROM Estudiantes e
+            LEFT JOIN Estudiante_Padre ep ON e.DNI_estudiante = ep.DNI_estudiante
+            LEFT JOIN Padre p ON ep.DNI_padre = p.DNI_padre
+            LEFT JOIN Direccion_Estudiante de ON e.DNI_estudiante = de.DNI_estudiante
+            LEFT JOIN Direccion d ON de.Id_Direccion = d.Id_Direccion
+            LEFT JOIN Lugar_Estudiante le ON e.DNI_estudiante = le.DNI_estudiante
+            LEFT JOIN Lugar l ON le.Id_lugar = l.Id_lugar
+        `);
         res.json(rows);
     } catch (error) {
+        console.error('Error en GET estudiantes:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
+// GET - Obtener estudiante por DNI con todas sus relaciones
 app.get('/api/estudiantes/:dni', async (req, res) => {
     try {
-        const [rows] = await pool.query('SELECT * FROM Estudiantes WHERE DNI_estudiante = ?', [req.params.dni]);
+        const [rows] = await pool.query(`
+            SELECT 
+                e.DNI_estudiante,
+                e.Nombre_estudiante,
+                e.ApellidoPaterno_estudiante,
+                e.ApellidoMaterno_estudiante,
+                e.Sexo,
+                e.Fecha_nacimiento,
+                ep.DNI_padre,
+                d.Provincia,
+                d.Distrito,
+                d.Manzana,
+                d.Lote,
+                d.Calle,
+                d.Referencia,
+                l.lugar as Lugar_nacimiento
+            FROM Estudiantes e
+            LEFT JOIN Estudiante_Padre ep ON e.DNI_estudiante = ep.DNI_estudiante
+            LEFT JOIN Direccion_Estudiante de ON e.DNI_estudiante = de.DNI_estudiante
+            LEFT JOIN Direccion d ON de.Id_Direccion = d.Id_Direccion
+            LEFT JOIN Lugar_Estudiante le ON e.DNI_estudiante = le.DNI_estudiante
+            LEFT JOIN Lugar l ON le.Id_lugar = l.Id_lugar
+            WHERE e.DNI_estudiante = ?
+        `, [req.params.dni]);
+        
         if (rows.length === 0) return res.status(404).json({ error: 'Estudiante no encontrado' });
         res.json(rows[0]);
     } catch (error) {
@@ -410,64 +443,261 @@ app.get('/api/estudiantes/:dni', async (req, res) => {
     }
 });
 
+// POST - Crear estudiante con datos en tablas relacionales
 app.post('/api/estudiantes', async (req, res) => {
+    const connection = await pool.getConnection();
     try {
-        const { DNI_estudiante, Nombre_estudiante, ApellidoPaterno_estudiante, ApellidoMaterno_estudiante, Sexo, Fecha_nacimiento, Provincia, Distrito, Manzana, Lote, Calle, Referencia, DNI_padre } = req.body;
-        
-        // Insertar estudiante
-        await pool.query(
-            'INSERT INTO Estudiantes (DNI_estudiante, Nombre_estudiante, ApellidoPaterno_estudiante, ApellidoMaterno_estudiante, Sexo, Fecha_nacimiento, Provincia, Distrito, Manzana, Lote, Calle, Referencia) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            [DNI_estudiante, Nombre_estudiante, ApellidoPaterno_estudiante, ApellidoMaterno_estudiante, Sexo, Fecha_nacimiento, Provincia || null, Distrito || null, Manzana || null, Lote || null, Calle || null, Referencia || null]
+        await connection.beginTransaction();
+
+        const { 
+            DNI_estudiante, 
+            Nombre_estudiante, 
+            ApellidoPaterno_estudiante, 
+            ApellidoMaterno_estudiante, 
+            Sexo, 
+            Fecha_nacimiento, 
+            DNI_padre,
+            Lugar_nacimiento,
+            Provincia,
+            Distrito,
+            Manzana,
+            Lote,
+            Calle,
+            Referencia
+        } = req.body;
+
+        // 1. Guardar en tabla Estudiantes (SOLO datos personales)
+        await connection.query(
+            'INSERT INTO Estudiantes (DNI_estudiante, Nombre_estudiante, ApellidoPaterno_estudiante, ApellidoMaterno_estudiante, Sexo, Fecha_nacimiento) VALUES (?, ?, ?, ?, ?, ?)',
+            [DNI_estudiante, Nombre_estudiante, ApellidoPaterno_estudiante, ApellidoMaterno_estudiante, Sexo, Fecha_nacimiento]
         );
-        
-        // Si se proporcionó un padre, crear la relación
+        console.log('✅ Paso 1: Estudiante guardado en tabla Estudiantes');
+
+        // 2. Guardar dirección en tabla Direccion y relacionar
+        if (Provincia || Distrito || Manzana || Lote || Calle || Referencia) {
+            const [resultDir] = await connection.query(
+                'INSERT INTO Direccion (Provincia, Distrito, Manzana, Lote, Calle, Referencia) VALUES (?, ?, ?, ?, ?, ?)',
+                [Provincia || null, Distrito || null, Manzana || null, Lote || null, Calle || null, Referencia || null]
+            );
+            const Id_Direccion = resultDir.insertId;
+            console.log('✅ Paso 2: Dirección guardada en tabla Direccion con Id:', Id_Direccion);
+
+            // 3. Relacionar en direccion_estudiante
+            await connection.query(
+                'INSERT INTO Direccion_Estudiante (DNI_estudiante, Id_Direccion, DNI_padre) VALUES (?, ?, ?)',
+                [DNI_estudiante, Id_Direccion, DNI_padre || null]
+            );
+            console.log('✅ Paso 3: Relación creada en Direccion_Estudiante');
+        }
+
+        // 4. Guardar lugar de nacimiento en tabla Lugar y relacionar
+        if (Lugar_nacimiento) {
+            // Verificar si el lugar ya existe
+            const [lugarExistente] = await connection.query(
+                'SELECT Id_lugar FROM Lugar WHERE lugar = ?',
+                [Lugar_nacimiento]
+            );
+
+            let Id_lugar;
+            if (lugarExistente.length > 0) {
+                Id_lugar = lugarExistente[0].Id_lugar;
+            } else {
+                const [resultLugar] = await connection.query(
+                    'INSERT INTO Lugar (lugar) VALUES (?)',
+                    [Lugar_nacimiento]
+                );
+                Id_lugar = resultLugar.insertId;
+            }
+            console.log('✅ Paso 4: Lugar de nacimiento guardado con Id:', Id_lugar);
+
+            // 5. Relacionar en Lugar_Estudiante
+            await connection.query(
+                'INSERT INTO Lugar_Estudiante (DNI_estudiante, Id_lugar) VALUES (?, ?)',
+                [DNI_estudiante, Id_lugar]
+            );
+            console.log('✅ Paso 5: Relación creada en Lugar_Estudiante');
+        }
+
+        // 6. Relacionar estudiante con padre
         if (DNI_padre) {
-            await pool.query(
+            await connection.query(
                 'INSERT INTO Estudiante_Padre (DNI_estudiante, DNI_padre) VALUES (?, ?)',
                 [DNI_estudiante, DNI_padre]
             );
+            console.log('✅ Paso 6: Relación creada en Estudiante_Padre');
         }
-        
-        res.status(201).json({ dni: DNI_estudiante, message: 'Estudiante creado' });
+
+        await connection.commit();
+        res.status(201).json({ 
+            dni: DNI_estudiante, 
+            message: 'Estudiante registrado correctamente en todas las tablas relacionales' 
+        });
     } catch (error) {
+        await connection.rollback();
+        console.error('❌ Error al crear estudiante:', error);
         if (error.code === 'ER_DUP_ENTRY') {
             res.status(400).json({ error: 'Ya existe un estudiante con ese DNI' });
         } else {
             res.status(500).json({ error: error.message });
         }
+    } finally {
+        connection.release();
     }
 });
 
+// PUT - Actualizar estudiante con datos en tablas relacionales
 app.put('/api/estudiantes/:dni', async (req, res) => {
+    const connection = await pool.getConnection();
     try {
-        const { Nombre_estudiante, ApellidoPaterno_estudiante, ApellidoMaterno_estudiante, Sexo, Fecha_nacimiento, Provincia, Distrito, Manzana, Lote, Calle, Referencia, DNI_padre } = req.body;
-        
-        // Actualizar datos del estudiante
-        await pool.query(
-            'UPDATE Estudiantes SET Nombre_estudiante=?, ApellidoPaterno_estudiante=?, ApellidoMaterno_estudiante=?, Sexo=?, Fecha_nacimiento=?, Provincia=?, Distrito=?, Manzana=?, Lote=?, Calle=?, Referencia=? WHERE DNI_estudiante=?',
-            [Nombre_estudiante, ApellidoPaterno_estudiante, ApellidoMaterno_estudiante, Sexo, Fecha_nacimiento, Provincia || null, Distrito || null, Manzana || null, Lote || null, Calle || null, Referencia || null, req.params.dni]
+        await connection.beginTransaction();
+
+        const { 
+            Nombre_estudiante, 
+            ApellidoPaterno_estudiante, 
+            ApellidoMaterno_estudiante, 
+            Sexo, 
+            Fecha_nacimiento,
+            DNI_padre,
+            Lugar_nacimiento,
+            Provincia,
+            Distrito,
+            Manzana,
+            Lote,
+            Calle,
+            Referencia
+        } = req.body;
+
+        // 1. Actualizar datos personales del estudiante
+        await connection.query(
+            'UPDATE Estudiantes SET Nombre_estudiante=?, ApellidoPaterno_estudiante=?, ApellidoMaterno_estudiante=?, Sexo=?, Fecha_nacimiento=? WHERE DNI_estudiante=?',
+            [Nombre_estudiante, ApellidoPaterno_estudiante, ApellidoMaterno_estudiante, Sexo, Fecha_nacimiento, req.params.dni]
         );
-        
-        // Actualizar relación con padre
-        if (DNI_padre) {
-            // Eliminar relación anterior
-            await pool.query('DELETE FROM Estudiante_Padre WHERE DNI_estudiante = ?', [req.params.dni]);
-            // Crear nueva relación
-            await pool.query('INSERT INTO Estudiante_Padre (DNI_estudiante, DNI_padre) VALUES (?, ?)', [req.params.dni, DNI_padre]);
+
+        // 2. Actualizar dirección
+        if (Provincia || Distrito || Manzana || Lote || Calle || Referencia) {
+            // Obtener dirección actual
+            const [dirActual] = await connection.query(
+                'SELECT Id_Direccion FROM Direccion_Estudiante WHERE DNI_estudiante = ?',
+                [req.params.dni]
+            );
+
+            if (dirActual.length > 0 && dirActual[0].Id_Direccion) {
+                // Actualizar dirección existente
+                await connection.query(
+                    'UPDATE Direccion SET Provincia=?, Distrito=?, Manzana=?, Lote=?, Calle=?, Referencia=? WHERE Id_Direccion=?',
+                    [Provincia || null, Distrito || null, Manzana || null, Lote || null, Calle || null, Referencia || null, dirActual[0].Id_Direccion]
+                );
+            } else {
+                // Crear nueva dirección y relación
+                const [resultDir] = await connection.query(
+                    'INSERT INTO Direccion (Provincia, Distrito, Manzana, Lote, Calle, Referencia) VALUES (?, ?, ?, ?, ?, ?)',
+                    [Provincia || null, Distrito || null, Manzana || null, Lote || null, Calle || null, Referencia || null]
+                );
+                await connection.query(
+                    'INSERT INTO Direccion_Estudiante (DNI_estudiante, Id_Direccion, DNI_padre) VALUES (?, ?, ?)',
+                    [req.params.dni, resultDir.insertId, DNI_padre || null]
+                );
+            }
         }
-        
-        res.json({ message: 'Estudiante actualizado' });
+
+        // 3. Actualizar lugar de nacimiento
+        if (Lugar_nacimiento) {
+            // Verificar si el lugar ya existe
+            const [lugarExistente] = await connection.query(
+                'SELECT Id_lugar FROM Lugar WHERE lugar = ?',
+                [Lugar_nacimiento]
+            );
+
+            let Id_lugar;
+            if (lugarExistente.length > 0) {
+                Id_lugar = lugarExistente[0].Id_lugar;
+            } else {
+                const [resultLugar] = await connection.query(
+                    'INSERT INTO Lugar (lugar) VALUES (?)',
+                    [Lugar_nacimiento]
+                );
+                Id_lugar = resultLugar.insertId;
+            }
+
+            // Verificar si ya tiene lugar asignado
+            const [lugarActual] = await connection.query(
+                'SELECT Id_lugar FROM Lugar_Estudiante WHERE DNI_estudiante = ?',
+                [req.params.dni]
+            );
+
+            if (lugarActual.length > 0) {
+                await connection.query(
+                    'UPDATE Lugar_Estudiante SET Id_lugar = ? WHERE DNI_estudiante = ?',
+                    [Id_lugar, req.params.dni]
+                );
+            } else {
+                await connection.query(
+                    'INSERT INTO Lugar_Estudiante (DNI_estudiante, Id_lugar) VALUES (?, ?)',
+                    [req.params.dni, Id_lugar]
+                );
+            }
+        }
+
+        // 4. Actualizar relación con padre
+        if (DNI_padre) {
+            await connection.query('DELETE FROM Estudiante_Padre WHERE DNI_estudiante = ?', [req.params.dni]);
+            await connection.query('INSERT INTO Estudiante_Padre (DNI_estudiante, DNI_padre) VALUES (?, ?)', [req.params.dni, DNI_padre]);
+        }
+
+        await connection.commit();
+        res.json({ message: 'Estudiante actualizado correctamente' });
     } catch (error) {
+        await connection.rollback();
+        console.error('Error al actualizar estudiante:', error);
         res.status(500).json({ error: error.message });
+    } finally {
+        connection.release();
     }
 });
 
+// DELETE - Eliminar estudiante y sus relaciones
 app.delete('/api/estudiantes/:dni', async (req, res) => {
+    const connection = await pool.getConnection();
     try {
-        await pool.query('DELETE FROM Estudiantes WHERE DNI_estudiante = ?', [req.params.dni]);
-        res.json({ message: 'Estudiante eliminado' });
+        await connection.beginTransaction();
+
+        // 1. Obtener Id_Direccion antes de eliminar
+        const [dirAsoc] = await connection.query(
+            'SELECT Id_Direccion FROM Direccion_Estudiante WHERE DNI_estudiante = ?',
+            [req.params.dni]
+        );
+
+        // 2. Eliminar de Lugar_Estudiante
+        await connection.query('DELETE FROM Lugar_Estudiante WHERE DNI_estudiante = ?', [req.params.dni]);
+        
+        // 3. Eliminar de Direccion_Estudiante
+        await connection.query('DELETE FROM Direccion_Estudiante WHERE DNI_estudiante = ?', [req.params.dni]);
+
+        // 4. Eliminar de Estudiante_Padre
+        await connection.query('DELETE FROM Estudiante_Padre WHERE DNI_estudiante = ?', [req.params.dni]);
+
+        // 5. Eliminar del Estudiante
+        await connection.query('DELETE FROM Estudiantes WHERE DNI_estudiante = ?', [req.params.dni]);
+
+        // 6. Eliminar dirección si no está siendo usada por otro estudiante
+        if (dirAsoc.length > 0 && dirAsoc[0].Id_Direccion) {
+            const [otrosEstudiantes] = await connection.query(
+                'SELECT COUNT(*) as count FROM Direccion_Estudiante WHERE Id_Direccion = ?',
+                [dirAsoc[0].Id_Direccion]
+            );
+            if (otrosEstudiantes[0].count === 0) {
+                await connection.query('DELETE FROM Direccion WHERE Id_Direccion = ?', [dirAsoc[0].Id_Direccion]);
+            }
+        }
+
+        await connection.commit();
+        res.json({ message: 'Estudiante eliminado correctamente' });
     } catch (error) {
+        await connection.rollback();
+        console.error('Error al eliminar estudiante:', error);
         res.status(500).json({ error: error.message });
+    } finally {
+        connection.release();
     }
 });
 

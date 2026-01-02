@@ -62,7 +62,7 @@ async function crearTablas() {
         await connection.query(`
             CREATE TABLE IF NOT EXISTS Grado (
                 Id_grado INT AUTO_INCREMENT PRIMARY KEY,
-                Nivel_grado INT NOT NULL
+                Nombre_grado VARCHAR(50) NOT NULL
             )
         `);
 
@@ -88,7 +88,7 @@ async function crearTablas() {
             CREATE TABLE IF NOT EXISTS Seccion (
                 Id_seccion INT AUTO_INCREMENT PRIMARY KEY,
                 Cantidad_alumnos INT,
-                Letra VARCHAR(5) NOT NULL
+                Turno VARCHAR(20) NOT NULL
             )
         `);
 
@@ -136,13 +136,13 @@ async function crearTablas() {
             )
         `);
 
-        // Tabla Materia
+        // Tabla Materia (relacionada con Seccion según modelo físico)
         await connection.query(`
             CREATE TABLE IF NOT EXISTS Materia (
                 Codigo_materia INT AUTO_INCREMENT PRIMARY KEY,
                 Nombre_materia VARCHAR(100) NOT NULL,
-                Id_grado INT,
-                FOREIGN KEY (Id_grado) REFERENCES Grado(Id_grado)
+                Id_seccion INT,
+                FOREIGN KEY (Id_seccion) REFERENCES Seccion(Id_seccion)
             )
         `);
 
@@ -1067,7 +1067,7 @@ app.delete('/api/profesores/:id', async (req, res) => {
 // ========== GRADOS ==========
 app.get('/api/grados', async (req, res) => {
     try {
-        const [rows] = await pool.query('SELECT * FROM Grado');
+        const [rows] = await pool.query('SELECT * FROM Grado ORDER BY Id_grado');
         res.json(rows);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -1076,9 +1076,18 @@ app.get('/api/grados', async (req, res) => {
 
 app.post('/api/grados', async (req, res) => {
     try {
-        const { Nivel_grado } = req.body;
-        const [result] = await pool.query('INSERT INTO Grado (Nivel_grado) VALUES (?)', [Nivel_grado]);
+        const { Nombre_grado } = req.body;
+        const [result] = await pool.query('INSERT INTO Grado (Nombre_grado) VALUES (?)', [Nombre_grado]);
         res.status(201).json({ id: result.insertId, message: 'Grado creado' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.delete('/api/grados/:id', async (req, res) => {
+    try {
+        await pool.query('DELETE FROM Grado WHERE Id_grado = ?', [req.params.id]);
+        res.json({ message: 'Grado eliminado' });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -1087,7 +1096,7 @@ app.post('/api/grados', async (req, res) => {
 // ========== SECCIONES ==========
 app.get('/api/secciones', async (req, res) => {
     try {
-        const [rows] = await pool.query('SELECT * FROM Seccion');
+        const [rows] = await pool.query('SELECT * FROM Seccion ORDER BY Id_seccion');
         res.json(rows);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -1096,9 +1105,18 @@ app.get('/api/secciones', async (req, res) => {
 
 app.post('/api/secciones', async (req, res) => {
     try {
-        const { Cantidad_alumnos, Letra } = req.body;
-        const [result] = await pool.query('INSERT INTO Seccion (Cantidad_alumnos, Letra) VALUES (?, ?)', [Cantidad_alumnos, Letra]);
+        const { Cantidad_alumnos, Turno } = req.body;
+        const [result] = await pool.query('INSERT INTO Seccion (Cantidad_alumnos, Turno) VALUES (?, ?)', [Cantidad_alumnos, Turno]);
         res.status(201).json({ id: result.insertId, message: 'Sección creada' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.delete('/api/secciones/:id', async (req, res) => {
+    try {
+        await pool.query('DELETE FROM Seccion WHERE Id_seccion = ?', [req.params.id]);
+        res.json({ message: 'Sección eliminada' });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -1108,9 +1126,10 @@ app.post('/api/secciones', async (req, res) => {
 app.get('/api/materias', async (req, res) => {
     try {
         const [rows] = await pool.query(`
-            SELECT m.*, g.Nivel_grado 
+            SELECT m.*, s.Turno 
             FROM Materia m 
-            LEFT JOIN Grado g ON m.Id_grado = g.Id_grado
+            LEFT JOIN Seccion s ON m.Id_seccion = s.Id_seccion
+            ORDER BY m.Nombre_materia
         `);
         res.json(rows);
     } catch (error) {
@@ -1120,9 +1139,18 @@ app.get('/api/materias', async (req, res) => {
 
 app.post('/api/materias', async (req, res) => {
     try {
-        const { Nombre_materia, Id_grado } = req.body;
-        const [result] = await pool.query('INSERT INTO Materia (Nombre_materia, Id_grado) VALUES (?, ?)', [Nombre_materia, Id_grado]);
+        const { Nombre_materia, Id_seccion } = req.body;
+        const [result] = await pool.query('INSERT INTO Materia (Nombre_materia, Id_seccion) VALUES (?, ?)', [Nombre_materia, Id_seccion]);
         res.status(201).json({ id: result.insertId, message: 'Materia creada' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.delete('/api/materias/:id', async (req, res) => {
+    try {
+        await pool.query('DELETE FROM Materia WHERE Codigo_materia = ?', [req.params.id]);
+        res.json({ message: 'Materia eliminada' });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -1303,7 +1331,7 @@ app.post('/api/ocupaciones', async (req, res) => {
 // ========== ESPECIALIDADES ==========
 app.get('/api/especialidades', async (req, res) => {
     try {
-        const [rows] = await pool.query('SELECT * FROM Especialidad');
+        const [rows] = await pool.query('SELECT * FROM Especialidad ORDER BY Nombre_especialidad');
         res.json(rows);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -1320,10 +1348,20 @@ app.post('/api/especialidades', async (req, res) => {
     }
 });
 
+app.delete('/api/especialidades/:id', async (req, res) => {
+    try {
+        await pool.query('DELETE FROM Profesor_Especialidad WHERE Id_especialidad = ?', [req.params.id]);
+        await pool.query('DELETE FROM Especialidad WHERE Id_especialidad = ?', [req.params.id]);
+        res.json({ message: 'Especialidad eliminada' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // ========== HORARIOS ==========
 app.get('/api/horarios', async (req, res) => {
     try {
-        const [rows] = await pool.query('SELECT * FROM Carga_Horaria');
+        const [rows] = await pool.query('SELECT * FROM Carga_Horaria ORDER BY Hora_inicio');
         res.json(rows);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -1340,6 +1378,87 @@ app.post('/api/horarios', async (req, res) => {
         res.status(201).json({ id: result.insertId, message: 'Horario creado' });
     } catch (error) {
         res.status(500).json({ error: error.message });
+    }
+});
+
+app.delete('/api/horarios/:id', async (req, res) => {
+    try {
+        await pool.query('DELETE FROM Profesor_Horario WHERE Id_horario = ?', [req.params.id]);
+        await pool.query('DELETE FROM Carga_Horaria WHERE Id_horario = ?', [req.params.id]);
+        res.json({ message: 'Horario eliminado' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ========== INICIALIZAR CATÁLOGOS ==========
+app.post('/api/inicializar-catalogos', async (req, res) => {
+    const connection = await pool.getConnection();
+    try {
+        await connection.beginTransaction();
+
+        // Verificar si ya hay datos
+        const [grados] = await connection.query('SELECT COUNT(*) as count FROM Grado');
+        if (grados[0].count > 0) {
+            connection.release();
+            return res.json({ message: 'Los catálogos ya están inicializados' });
+        }
+
+        // GRADOS - Inicial y Primaria
+        const gradosData = [
+            'Inicial 3 años', 'Inicial 4 años', 'Inicial 5 años',
+            '1° Primaria', '2° Primaria', '3° Primaria', 
+            '4° Primaria', '5° Primaria', '6° Primaria'
+        ];
+        for (const grado of gradosData) {
+            await connection.query('INSERT INTO Grado (Nombre_grado) VALUES (?)', [grado]);
+        }
+
+        // ESPECIALIDADES - Áreas curriculares
+        const especialidadesData = [
+            'Matemática', 'Comunicación', 'Ciencia y Tecnología',
+            'Personal Social', 'Arte y Cultura', 'Educación Física',
+            'Inglés', 'Educación Religiosa', 'Tutoría'
+        ];
+        for (const esp of especialidadesData) {
+            await connection.query('INSERT INTO Especialidad (Nombre_especialidad) VALUES (?)', [esp]);
+        }
+
+        // HORARIOS - Turnos típicos de clase (45 min cada bloque)
+        const horariosData = [
+            ['07:30:00', '08:15:00'], ['08:15:00', '09:00:00'],
+            ['09:00:00', '09:45:00'], ['09:45:00', '10:30:00'],
+            ['10:45:00', '11:30:00'], ['11:30:00', '12:15:00'],
+            ['12:15:00', '13:00:00']
+        ];
+        for (const [inicio, fin] of horariosData) {
+            await connection.query('INSERT INTO Carga_Horaria (Hora_inicio, Hora_fin) VALUES (?, ?)', [inicio, fin]);
+        }
+
+        // SECCIONES - A, B con turnos Mañana y Tarde
+        const seccionesData = [
+            [30, 'Mañana'], [30, 'Mañana'], 
+            [30, 'Tarde'], [30, 'Tarde']
+        ];
+        for (const [cantidad, turno] of seccionesData) {
+            await connection.query('INSERT INTO Seccion (Cantidad_alumnos, Turno) VALUES (?, ?)', [cantidad, turno]);
+        }
+
+        await connection.commit();
+        res.json({ 
+            message: 'Catálogos inicializados correctamente',
+            datos: {
+                grados: gradosData.length,
+                especialidades: especialidadesData.length,
+                horarios: horariosData.length,
+                secciones: seccionesData.length
+            }
+        });
+    } catch (error) {
+        await connection.rollback();
+        res.status(500).json({ error: error.message });
+    } finally {
+        connection.release();
     }
 });
 

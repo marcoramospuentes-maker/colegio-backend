@@ -58,11 +58,13 @@ async function crearTablas() {
             )
         `);
 
-        // Tabla Grado
+        // Tabla Grado (Inicial mañana, Primaria tarde)
         await connection.query(`
             CREATE TABLE IF NOT EXISTS Grado (
                 Id_grado INT AUTO_INCREMENT PRIMARY KEY,
-                Nombre_grado VARCHAR(50) NOT NULL
+                Nombre_grado VARCHAR(50) NOT NULL,
+                Nivel VARCHAR(20) NOT NULL,
+                Turno VARCHAR(20) NOT NULL
             )
         `);
 
@@ -83,12 +85,30 @@ async function crearTablas() {
             )
         `);
 
-        // Tabla Seccion
+        // Tabla Seccion (A o B, relacionada con Grado)
         await connection.query(`
             CREATE TABLE IF NOT EXISTS Seccion (
                 Id_seccion INT AUTO_INCREMENT PRIMARY KEY,
-                Cantidad_alumnos INT,
-                Turno VARCHAR(20) NOT NULL
+                Id_grado INT NOT NULL,
+                Letra VARCHAR(5) NOT NULL,
+                Cantidad_alumnos INT DEFAULT 30,
+                FOREIGN KEY (Id_grado) REFERENCES Grado(Id_grado)
+            )
+        `);
+
+        // Tabla Horario_Clase (grilla de horarios por grado/seccion)
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS Horario_Clase (
+                Id_horario_clase INT AUTO_INCREMENT PRIMARY KEY,
+                Id_seccion INT NOT NULL,
+                Dia VARCHAR(15) NOT NULL,
+                Hora_inicio TIME NOT NULL,
+                Hora_fin TIME NOT NULL,
+                Id_especialidad INT,
+                Codigo_profesor INT,
+                FOREIGN KEY (Id_seccion) REFERENCES Seccion(Id_seccion),
+                FOREIGN KEY (Id_especialidad) REFERENCES Especialidad(Id_especialidad),
+                FOREIGN KEY (Codigo_profesor) REFERENCES Profesor(Codigo_profesor)
             )
         `);
 
@@ -1141,49 +1161,140 @@ app.get('/api/grados', async (req, res) => {
     }
 });
 
-app.post('/api/grados', async (req, res) => {
-    try {
-        const { Nombre_grado } = req.body;
-        const [result] = await pool.query('INSERT INTO Grado (Nombre_grado) VALUES (?)', [Nombre_grado]);
-        res.status(201).json({ id: result.insertId, message: 'Grado creado' });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-app.delete('/api/grados/:id', async (req, res) => {
-    try {
-        await pool.query('DELETE FROM Grado WHERE Id_grado = ?', [req.params.id]);
-        res.json({ message: 'Grado eliminado' });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
 // ========== SECCIONES ==========
 app.get('/api/secciones', async (req, res) => {
     try {
-        const [rows] = await pool.query('SELECT * FROM Seccion ORDER BY Id_seccion');
+        const [rows] = await pool.query(`
+            SELECT s.*, g.Nombre_grado, g.Nivel, g.Turno 
+            FROM Seccion s 
+            JOIN Grado g ON s.Id_grado = g.Id_grado 
+            ORDER BY g.Id_grado, s.Letra
+        `);
         res.json(rows);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
-app.post('/api/secciones', async (req, res) => {
+// Obtener secciones por grado
+app.get('/api/secciones/grado/:idGrado', async (req, res) => {
     try {
-        const { Cantidad_alumnos, Turno } = req.body;
-        const [result] = await pool.query('INSERT INTO Seccion (Cantidad_alumnos, Turno) VALUES (?, ?)', [Cantidad_alumnos, Turno]);
-        res.status(201).json({ id: result.insertId, message: 'Sección creada' });
+        const [rows] = await pool.query(`
+            SELECT s.*, g.Nombre_grado, g.Nivel, g.Turno 
+            FROM Seccion s 
+            JOIN Grado g ON s.Id_grado = g.Id_grado 
+            WHERE s.Id_grado = ?
+            ORDER BY s.Letra
+        `, [req.params.idGrado]);
+        res.json(rows);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
-app.delete('/api/secciones/:id', async (req, res) => {
+// ========== HORARIO DE CLASES ==========
+// Obtener horario de una sección específica
+app.get('/api/horario-clase/:idSeccion', async (req, res) => {
     try {
-        await pool.query('DELETE FROM Seccion WHERE Id_seccion = ?', [req.params.id]);
-        res.json({ message: 'Sección eliminada' });
+        const [rows] = await pool.query(`
+            SELECT hc.*, e.Nombre_especialidad, 
+                   p.Nombre_profesor, p.ApellidoPaterno_profesor
+            FROM Horario_Clase hc
+            LEFT JOIN Especialidad e ON hc.Id_especialidad = e.Id_especialidad
+            LEFT JOIN Profesor p ON hc.Codigo_profesor = p.Codigo_profesor
+            WHERE hc.Id_seccion = ?
+            ORDER BY FIELD(hc.Dia, 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'), hc.Hora_inicio
+        `, [req.params.idSeccion]);
+        res.json(rows);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Inicializar grilla de horario vacía para una sección
+app.post('/api/horario-clase/inicializar/:idSeccion', async (req, res) => {
+    const connection = await pool.getConnection();
+    try {
+        await connection.beginTransaction();
+        
+        // Verificar si ya existe horario
+        const [existe] = await connection.query(
+            'SELECT COUNT(*) as count FROM Horario_Clase WHERE Id_seccion = ?', 
+            [req.params.idSeccion]
+        );
+        
+        if (existe[0].count > 0) {
+            connection.release();
+            return res.json({ message: 'El horario ya existe para esta sección' });
+        }
+        
+        // Obtener info de la sección para saber el turno
+        const [seccion] = await connection.query(`
+            SELECT s.*, g.Turno FROM Seccion s 
+            JOIN Grado g ON s.Id_grado = g.Id_grado 
+            WHERE s.Id_seccion = ?
+        `, [req.params.idSeccion]);
+        
+        if (seccion.length === 0) {
+            connection.release();
+            return res.status(404).json({ error: 'Sección no encontrada' });
+        }
+        
+        const turno = seccion[0].Turno;
+        const dias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'];
+        
+        // Horarios según turno (bloques de 45 min)
+        const horarios = turno === 'Mañana' 
+            ? [
+                ['07:30:00', '08:15:00'], ['08:15:00', '09:00:00'],
+                ['09:15:00', '10:00:00'], ['10:00:00', '10:45:00'],
+                ['11:00:00', '11:45:00'], ['11:45:00', '12:30:00']
+              ]
+            : [
+                ['13:00:00', '13:45:00'], ['13:45:00', '14:30:00'],
+                ['14:45:00', '15:30:00'], ['15:30:00', '16:15:00'],
+                ['16:30:00', '17:15:00'], ['17:15:00', '18:00:00']
+              ];
+        
+        // Crear grilla vacía
+        for (const dia of dias) {
+            for (const [inicio, fin] of horarios) {
+                await connection.query(
+                    'INSERT INTO Horario_Clase (Id_seccion, Dia, Hora_inicio, Hora_fin) VALUES (?, ?, ?, ?)',
+                    [req.params.idSeccion, dia, inicio, fin]
+                );
+            }
+        }
+        
+        await connection.commit();
+        res.json({ message: 'Horario inicializado correctamente', turno, bloques: horarios.length * dias.length });
+    } catch (error) {
+        await connection.rollback();
+        res.status(500).json({ error: error.message });
+    } finally {
+        connection.release();
+    }
+});
+
+// Asignar materia y profesor a un bloque de horario
+app.put('/api/horario-clase/:idHorarioClase', async (req, res) => {
+    try {
+        const { Id_especialidad, Codigo_profesor } = req.body;
+        await pool.query(
+            'UPDATE Horario_Clase SET Id_especialidad = ?, Codigo_profesor = ? WHERE Id_horario_clase = ?',
+            [Id_especialidad || null, Codigo_profesor || null, req.params.idHorarioClase]
+        );
+        res.json({ message: 'Horario actualizado' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Limpiar horario de una sección
+app.delete('/api/horario-clase/seccion/:idSeccion', async (req, res) => {
+    try {
+        await pool.query('DELETE FROM Horario_Clase WHERE Id_seccion = ?', [req.params.idSeccion]);
+        res.json({ message: 'Horario eliminado' });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -1471,14 +1582,27 @@ app.post('/api/inicializar-catalogos', async (req, res) => {
             return res.json({ message: 'Los catálogos ya están inicializados' });
         }
 
-        // GRADOS - Inicial y Primaria
+        // GRADOS - Inicial (Mañana) y Primaria (Tarde)
         const gradosData = [
-            'Inicial 3 años', 'Inicial 4 años', 'Inicial 5 años',
-            '1° Primaria', '2° Primaria', '3° Primaria', 
-            '4° Primaria', '5° Primaria', '6° Primaria'
+            ['Inicial 3 años', 'Inicial', 'Mañana'],
+            ['Inicial 4 años', 'Inicial', 'Mañana'],
+            ['Inicial 5 años', 'Inicial', 'Mañana'],
+            ['1° Primaria', 'Primaria', 'Tarde'],
+            ['2° Primaria', 'Primaria', 'Tarde'],
+            ['3° Primaria', 'Primaria', 'Tarde'],
+            ['4° Primaria', 'Primaria', 'Tarde'],
+            ['5° Primaria', 'Primaria', 'Tarde'],
+            ['6° Primaria', 'Primaria', 'Tarde']
         ];
-        for (const grado of gradosData) {
-            await connection.query('INSERT INTO Grado (Nombre_grado) VALUES (?)', [grado]);
+        for (const [nombre, nivel, turno] of gradosData) {
+            await connection.query('INSERT INTO Grado (Nombre_grado, Nivel, Turno) VALUES (?, ?, ?)', [nombre, nivel, turno]);
+        }
+
+        // SECCIONES - A y B para cada grado
+        const [gradosInsertados] = await connection.query('SELECT Id_grado FROM Grado ORDER BY Id_grado');
+        for (const grado of gradosInsertados) {
+            await connection.query('INSERT INTO Seccion (Id_grado, Letra, Cantidad_alumnos) VALUES (?, ?, ?)', [grado.Id_grado, 'A', 30]);
+            await connection.query('INSERT INTO Seccion (Id_grado, Letra, Cantidad_alumnos) VALUES (?, ?, ?)', [grado.Id_grado, 'B', 30]);
         }
 
         // ESPECIALIDADES - Áreas curriculares
@@ -1491,34 +1615,13 @@ app.post('/api/inicializar-catalogos', async (req, res) => {
             await connection.query('INSERT INTO Especialidad (Nombre_especialidad) VALUES (?)', [esp]);
         }
 
-        // HORARIOS - Turnos típicos de clase (45 min cada bloque)
-        const horariosData = [
-            ['07:30:00', '08:15:00'], ['08:15:00', '09:00:00'],
-            ['09:00:00', '09:45:00'], ['09:45:00', '10:30:00'],
-            ['10:45:00', '11:30:00'], ['11:30:00', '12:15:00'],
-            ['12:15:00', '13:00:00']
-        ];
-        for (const [inicio, fin] of horariosData) {
-            await connection.query('INSERT INTO Carga_Horaria (Hora_inicio, Hora_fin) VALUES (?, ?)', [inicio, fin]);
-        }
-
-        // SECCIONES - A, B con turnos Mañana y Tarde
-        const seccionesData = [
-            [30, 'Mañana'], [30, 'Mañana'], 
-            [30, 'Tarde'], [30, 'Tarde']
-        ];
-        for (const [cantidad, turno] of seccionesData) {
-            await connection.query('INSERT INTO Seccion (Cantidad_alumnos, Turno) VALUES (?, ?)', [cantidad, turno]);
-        }
-
         await connection.commit();
         res.json({ 
             message: 'Catálogos inicializados correctamente',
             datos: {
                 grados: gradosData.length,
-                especialidades: especialidadesData.length,
-                horarios: horariosData.length,
-                secciones: seccionesData.length
+                secciones: gradosData.length * 2,
+                especialidades: especialidadesData.length
             }
         });
     } catch (error) {

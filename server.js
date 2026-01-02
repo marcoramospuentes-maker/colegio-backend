@@ -328,9 +328,76 @@ app.get('/', (req, res) => {
             ocupaciones: '/api/ocupaciones',
             especialidades: '/api/especialidades',
             horarios: '/api/horarios',
-            verificar: '/api/verificar-tablas'
+            verificar: '/api/verificar-tablas',
+            verificarTodo: '/api/verificar-todo'
         }
     });
+});
+
+// ========== VERIFICAR TODAS LAS TABLAS (para debug) ==========
+app.get('/api/verificar-todo', async (req, res) => {
+    try {
+        // Catálogos
+        const [grados] = await pool.query('SELECT * FROM Grado ORDER BY Id_grado');
+        const [especialidades] = await pool.query('SELECT * FROM Especialidad ORDER BY Id_especialidad');
+        const [horarios] = await pool.query('SELECT * FROM Carga_Horaria ORDER BY Id_horario');
+        const [secciones] = await pool.query('SELECT * FROM Seccion ORDER BY Id_seccion');
+        
+        // Profesores y relaciones
+        const [profesores] = await pool.query('SELECT * FROM Profesor');
+        const [profesorEspecialidad] = await pool.query('SELECT * FROM Profesor_Especialidad');
+        const [profesorHorario] = await pool.query('SELECT * FROM Profesor_Horario');
+        
+        // Estudiantes y relaciones
+        const [estudiantes] = await pool.query('SELECT * FROM Estudiantes');
+        const [padres] = await pool.query('SELECT * FROM Padre');
+        const [estudiantePadre] = await pool.query('SELECT * FROM Estudiante_Padre');
+        const [direcciones] = await pool.query('SELECT * FROM Direccion');
+        const [direccionEstudiante] = await pool.query('SELECT * FROM Direccion_Estudiante');
+        const [lugares] = await pool.query('SELECT * FROM Lugar');
+        const [lugarEstudiante] = await pool.query('SELECT * FROM Lugar_Estudiante');
+        const [ocupaciones] = await pool.query('SELECT * FROM Ocupacion');
+        const [detalleOcupacion] = await pool.query('SELECT * FROM Detalle_Ocupacion');
+        
+        res.json({
+            mensaje: '📊 ESTADO COMPLETO DE LA BASE DE DATOS',
+            resumen: {
+                total_grados: grados.length,
+                total_especialidades: especialidades.length,
+                total_horarios: horarios.length,
+                total_secciones: secciones.length,
+                total_profesores: profesores.length,
+                total_estudiantes: estudiantes.length,
+                total_padres: padres.length
+            },
+            catalogos: {
+                grados,
+                especialidades,
+                horarios,
+                secciones
+            },
+            profesores: {
+                datos: profesores,
+                profesor_especialidad: profesorEspecialidad,
+                profesor_horario: profesorHorario
+            },
+            estudiantes: {
+                datos: estudiantes,
+                estudiante_padre: estudiantePadre,
+                direcciones,
+                direccion_estudiante: direccionEstudiante,
+                lugares,
+                lugar_estudiante: lugarEstudiante
+            },
+            padres: {
+                datos: padres,
+                ocupaciones,
+                detalle_ocupacion: detalleOcupacion
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
 // ========== VERIFICAR TABLAS (para debug) ==========

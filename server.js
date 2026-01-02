@@ -377,13 +377,23 @@ app.get('/api/reset-tablas', async (req, res) => {
 // ========== ESTUDIANTES ==========
 app.get('/api/estudiantes', async (req, res) => {
     try {
-        const [rows] = await pool.query(`
-            SELECT e.*, ep.DNI_padre, 
-                   CONCAT(p.Nombre_padre, ' ', p.ApellidoPaterno_padre) as Nombre_padre
-            FROM Estudiantes e
-            LEFT JOIN Estudiante_Padre ep ON e.DNI_estudiante = ep.DNI_estudiante
-            LEFT JOIN Padre p ON ep.DNI_padre = p.DNI_padre
-        `);
+        // Primero intentar obtener con el padre relacionado
+        let rows;
+        try {
+            const [result] = await pool.query(`
+                SELECT e.*, ep.DNI_padre, 
+                       CONCAT(p.Nombre_padre, ' ', p.ApellidoPaterno_padre) as Nombre_padre
+                FROM Estudiantes e
+                LEFT JOIN Estudiante_Padre ep ON e.DNI_estudiante = ep.DNI_estudiante
+                LEFT JOIN Padre p ON ep.DNI_padre = p.DNI_padre
+            `);
+            rows = result;
+        } catch (joinError) {
+            // Si falla el JOIN, obtener solo estudiantes
+            console.log('JOIN falló, obteniendo solo estudiantes:', joinError.message);
+            const [result] = await pool.query('SELECT * FROM Estudiantes');
+            rows = result;
+        }
         res.json(rows);
     } catch (error) {
         res.status(500).json({ error: error.message });

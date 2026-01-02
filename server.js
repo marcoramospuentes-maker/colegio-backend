@@ -129,7 +129,7 @@ async function crearTablas() {
         // Tabla Profesor
         await connection.query(`
             CREATE TABLE IF NOT EXISTS Profesor (
-                Codigo_profesor INT AUTO_INCREMENT PRIMARY KEY,
+                Codigo_profesor INT PRIMARY KEY,
                 Nombre_profesor VARCHAR(100) NOT NULL,
                 ApellidoPaterno_profesor VARCHAR(100) NOT NULL,
                 ApellidoMaterno_profesor VARCHAR(100) NOT NULL
@@ -907,32 +907,160 @@ app.delete('/api/padres/:dni', async (req, res) => {
 // ========== PROFESORES ==========
 app.get('/api/profesores', async (req, res) => {
     try {
-        const [rows] = await pool.query('SELECT * FROM Profesor');
+        const [rows] = await pool.query(`
+            SELECT p.*, 
+                   GROUP_CONCAT(DISTINCT e.Nombre_especialidad SEPARATOR ', ') as Especialidades,
+                   GROUP_CONCAT(DISTINCT CONCAT(ch.Hora_inicio, ' - ', ch.Hora_fin) SEPARATOR ', ') as Horarios
+            FROM Profesor p
+            LEFT JOIN Profesor_Especialidad pe ON p.Codigo_profesor = pe.Codigo_profesor
+            LEFT JOIN Especialidad e ON pe.Id_especialidad = e.Id_especialidad
+            LEFT JOIN Profesor_Horario ph ON p.Codigo_profesor = ph.Codigo_profesor
+            LEFT JOIN Carga_Horaria ch ON ph.Id_horario = ch.Id_horario
+            GROUP BY p.Codigo_profesor
+        `);
         res.json(rows);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
-app.post('/api/profesores', async (req, res) => {
+app.get('/api/profesores/:id', async (req, res) => {
     try {
-        const { Nombre_profesor, ApellidoPaterno_profesor, ApellidoMaterno_profesor } = req.body;
-        const [result] = await pool.query(
-            'INSERT INTO Profesor (Nombre_profesor, ApellidoPaterno_profesor, ApellidoMaterno_profesor) VALUES (?, ?, ?)',
-            [Nombre_profesor, ApellidoPaterno_profesor, ApellidoMaterno_profesor]
+        const [profesor] = await pool.query('SELECT * FROM Profesor WHERE Codigo_profesor = ?', [req.params.id]);
+        if (profesor.length === 0) {
+            return res.status(404).json({ error: 'Profesor no encontrado' });
+        }
+        
+        // Obtener especialidades del profesor
+        const [especialidades] = await pool.query(
+            'SELECT Id_especialidad FROM Profesor_Especialidad WHERE Codigo_profesor = ?',
+            [req.params.id]
         );
-        res.status(201).json({ id: result.insertId, message: 'Profesor creado' });
+        
+        // Obtener horarios del profesor
+        const [horarios] = await pool.query(
+            'SELECT Id_horario FROM Profesor_Horario WHERE Codigo_profesor = ?',
+            [req.params.id]
+        );
+        
+        res.json({
+            ...profesor[0],
+            especialidades: especialidades.map(e => e.Id_especialidad),
+            horarios: horarios.map(h => h.Id_horario)
+        });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
-app.delete('/api/profesores/:id', async (req, res) => {
+app.post('/api/profesores', async (req, res) => {
+    const connection = await pool.getConnection();
     try {
-        await pool.query('DELETE FROM Profesor WHERE Codigo_profesor = ?', [req.params.id]);
+        await connection.beginTransaction();
+        
+        const { Codigo_profesor, Nombre_profesor, ApellidoPaterno_profesor, ApellidoMaterno_profesor, especialidades, horarios } = req.body;
+        
+        // Insertar profesor
+        await connection.query(
+            'INSERT INTO Profesor (Codigo_profesor, Nombre_profesor, ApellidoPaterno_profesor, ApellidoMaterno_profesor) VALUES (?, ?, ?, ?)',
+            [Codigo_profesor, Nombre_profesor, ApellidoPaterno_profesor, ApellidoMaterno_profesor]
+        );
+        
+        // Insertar especialidades si existen
+        if (especialidades && especialidades.length > 0) {
+            for (const idEsp of especialidades) {
+                await connection.query(
+                    'INSERT INTO Profesor_Especialidad (Codigo_profesor, Id_especialidad) VALUES (?, ?)',
+                    [Codigo_profesor, idEsp]
+                );
+            }
+        }
+        
+        // Insertar horarios si existen
+        if (horarios && horarios.length > 0) {
+            for (const idHor of horarios) {
+                await connection.query(
+                    'INSERT INTO Profesor_Horario (Codigo_profesor, Id_horario) VALUES (?, ?)',
+                    [Codigo_profesor, idHor]
+                );
+            }
+        }
+        
+        await connection.commit();
+        res.status(201).json({ id: Codigo_profesor, message: 'Profesor creado correctamente' });
+    } catch (error) {
+        await connection.rollback();
+        res.status(500).json({ error: error.message });
+    } finally {
+        connection.release();
+    }
+});
+
+app.put('/api/profesores/:id', async (req, res) => {
+    const connection = await pool.getConnection();
+    try {
+        await connection.beginTransaction();
+        
+        const { Nombre_profesor, ApellidoPaterno_profesor, ApellidoMaterno_profesor, especialidades, horarios } = req.body;
+        const codigoProfesor = req.params.id;
+        
+        // Actualizar datos del profesor
+        await connection.query(
+            'UPDATE Profesor SET Nombre_profesor = ?, ApellidoPaterno_profesor = ?, ApellidoMaterno_profesor = ? WHERE Codigo_profesor = ?',
+            [Nombre_profesor, ApellidoPaterno_profesor, ApellidoMaterno_profesor, codigoProfesor]
+        );
+        
+        // Eliminar especialidades anteriores y agregar nuevas
+        await connection.query('DELETE FROM Profesor_Especialidad WHERE Codigo_profesor = ?', [codigoProfesor]);
+        if (especialidades && especialidades.length > 0) {
+            for (const idEsp of especialidades) {
+                await connection.query(
+                    'INSERT INTO Profesor_Especialidad (Codigo_profesor, Id_especialidad) VALUES (?, ?)',
+                    [codigoProfesor, idEsp]
+                );
+            }
+        }
+        
+        // Eliminar horarios anteriores y agregar nuevos
+        await connection.query('DELETE FROM Profesor_Horario WHERE Codigo_profesor = ?', [codigoProfesor]);
+        if (horarios && horarios.length > 0) {
+            for (const idHor of horarios) {
+                await connection.query(
+                    'INSERT INTO Profesor_Horario (Codigo_profesor, Id_horario) VALUES (?, ?)',
+                    [codigoProfesor, idHor]
+                );
+            }
+        }
+        
+        await connection.commit();
+        res.json({ message: 'Profesor actualizado correctamente' });
+    } catch (error) {
+        await connection.rollback();
+        res.status(500).json({ error: error.message });
+    } finally {
+        connection.release();
+    }
+});
+
+app.delete('/api/profesores/:id', async (req, res) => {
+    const connection = await pool.getConnection();
+    try {
+        await connection.beginTransaction();
+        
+        // Eliminar relaciones primero
+        await connection.query('DELETE FROM Profesor_Especialidad WHERE Codigo_profesor = ?', [req.params.id]);
+        await connection.query('DELETE FROM Profesor_Horario WHERE Codigo_profesor = ?', [req.params.id]);
+        
+        // Eliminar profesor
+        await connection.query('DELETE FROM Profesor WHERE Codigo_profesor = ?', [req.params.id]);
+        
+        await connection.commit();
         res.json({ message: 'Profesor eliminado' });
     } catch (error) {
+        await connection.rollback();
         res.status(500).json({ error: error.message });
+    } finally {
+        connection.release();
     }
 });
 

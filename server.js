@@ -106,12 +106,18 @@ async function crearTablas() {
         // Tabla Estudiantes
         await connection.query(`
             CREATE TABLE IF NOT EXISTS Estudiantes (
-                Codigo_estudiante INT AUTO_INCREMENT PRIMARY KEY,
+                DNI_estudiante VARCHAR(20) PRIMARY KEY,
                 Nombre_estudiante VARCHAR(100) NOT NULL,
                 ApellidoPaterno_estudiante VARCHAR(100) NOT NULL,
                 ApellidoMaterno_estudiante VARCHAR(100) NOT NULL,
-                Sexo VARCHAR(10) NOT NULL,
-                Fecha_nacimiento DATE NOT NULL
+                Sexo CHAR(1) NOT NULL,
+                Fecha_nacimiento DATE NOT NULL,
+                Provincia VARCHAR(100),
+                Distrito VARCHAR(100),
+                Manzana VARCHAR(20),
+                Lote VARCHAR(20),
+                Calle VARCHAR(200),
+                Referencia VARCHAR(200)
             )
         `);
 
@@ -366,9 +372,9 @@ app.get('/api/estudiantes', async (req, res) => {
     }
 });
 
-app.get('/api/estudiantes/:id', async (req, res) => {
+app.get('/api/estudiantes/:dni', async (req, res) => {
     try {
-        const [rows] = await pool.query('SELECT * FROM Estudiantes WHERE Codigo_estudiante = ?', [req.params.id]);
+        const [rows] = await pool.query('SELECT * FROM Estudiantes WHERE DNI_estudiante = ?', [req.params.dni]);
         if (rows.length === 0) return res.status(404).json({ error: 'Estudiante no encontrado' });
         res.json(rows[0]);
     } catch (error) {
@@ -378,23 +384,27 @@ app.get('/api/estudiantes/:id', async (req, res) => {
 
 app.post('/api/estudiantes', async (req, res) => {
     try {
-        const { Nombre_estudiante, ApellidoPaterno_estudiante, ApellidoMaterno_estudiante, Sexo, Fecha_nacimiento } = req.body;
-        const [result] = await pool.query(
-            'INSERT INTO Estudiantes (Nombre_estudiante, ApellidoPaterno_estudiante, ApellidoMaterno_estudiante, Sexo, Fecha_nacimiento) VALUES (?, ?, ?, ?, ?)',
-            [Nombre_estudiante, ApellidoPaterno_estudiante, ApellidoMaterno_estudiante, Sexo, Fecha_nacimiento]
+        const { DNI_estudiante, Nombre_estudiante, ApellidoPaterno_estudiante, ApellidoMaterno_estudiante, Sexo, Fecha_nacimiento, Provincia, Distrito, Manzana, Lote, Calle, Referencia } = req.body;
+        await pool.query(
+            'INSERT INTO Estudiantes (DNI_estudiante, Nombre_estudiante, ApellidoPaterno_estudiante, ApellidoMaterno_estudiante, Sexo, Fecha_nacimiento, Provincia, Distrito, Manzana, Lote, Calle, Referencia) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [DNI_estudiante, Nombre_estudiante, ApellidoPaterno_estudiante, ApellidoMaterno_estudiante, Sexo, Fecha_nacimiento, Provincia || null, Distrito || null, Manzana || null, Lote || null, Calle || null, Referencia || null]
         );
-        res.status(201).json({ id: result.insertId, message: 'Estudiante creado' });
+        res.status(201).json({ dni: DNI_estudiante, message: 'Estudiante creado' });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        if (error.code === 'ER_DUP_ENTRY') {
+            res.status(400).json({ error: 'Ya existe un estudiante con ese DNI' });
+        } else {
+            res.status(500).json({ error: error.message });
+        }
     }
 });
 
-app.put('/api/estudiantes/:id', async (req, res) => {
+app.put('/api/estudiantes/:dni', async (req, res) => {
     try {
-        const { Nombre_estudiante, ApellidoPaterno_estudiante, ApellidoMaterno_estudiante, Sexo, Fecha_nacimiento } = req.body;
+        const { Nombre_estudiante, ApellidoPaterno_estudiante, ApellidoMaterno_estudiante, Sexo, Fecha_nacimiento, Provincia, Distrito, Manzana, Lote, Calle, Referencia } = req.body;
         await pool.query(
-            'UPDATE Estudiantes SET Nombre_estudiante=?, ApellidoPaterno_estudiante=?, ApellidoMaterno_estudiante=?, Sexo=?, Fecha_nacimiento=? WHERE Codigo_estudiante=?',
-            [Nombre_estudiante, ApellidoPaterno_estudiante, ApellidoMaterno_estudiante, Sexo, Fecha_nacimiento, req.params.id]
+            'UPDATE Estudiantes SET Nombre_estudiante=?, ApellidoPaterno_estudiante=?, ApellidoMaterno_estudiante=?, Sexo=?, Fecha_nacimiento=?, Provincia=?, Distrito=?, Manzana=?, Lote=?, Calle=?, Referencia=? WHERE DNI_estudiante=?',
+            [Nombre_estudiante, ApellidoPaterno_estudiante, ApellidoMaterno_estudiante, Sexo, Fecha_nacimiento, Provincia || null, Distrito || null, Manzana || null, Lote || null, Calle || null, Referencia || null, req.params.dni]
         );
         res.json({ message: 'Estudiante actualizado' });
     } catch (error) {
@@ -402,9 +412,9 @@ app.put('/api/estudiantes/:id', async (req, res) => {
     }
 });
 
-app.delete('/api/estudiantes/:id', async (req, res) => {
+app.delete('/api/estudiantes/:dni', async (req, res) => {
     try {
-        await pool.query('DELETE FROM Estudiantes WHERE Codigo_estudiante = ?', [req.params.id]);
+        await pool.query('DELETE FROM Estudiantes WHERE DNI_estudiante = ?', [req.params.dni]);
         res.json({ message: 'Estudiante eliminado' });
     } catch (error) {
         res.status(500).json({ error: error.message });

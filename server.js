@@ -62,7 +62,7 @@ async function crearTablas() {
         await connection.query(`
             CREATE TABLE IF NOT EXISTS Grado (
                 Id_grado INT AUTO_INCREMENT PRIMARY KEY,
-                Nivel_grado VARCHAR(50) NOT NULL
+                Nivel_grado INT NOT NULL
             )
         `);
 
@@ -118,11 +118,11 @@ async function crearTablas() {
         // Tabla Padre
         await connection.query(`
             CREATE TABLE IF NOT EXISTS Padre (
-                DNI_padre VARCHAR(20) PRIMARY KEY,
+                DNI_padre INT PRIMARY KEY,
                 Nombre_padre VARCHAR(100) NOT NULL,
                 ApellidoPaterno_padre VARCHAR(100) NOT NULL,
                 ApellidoMaterno_padre VARCHAR(100) NOT NULL,
-                Telefono_padre VARCHAR(20)
+                Telefono_padre INT
             )
         `);
 
@@ -160,7 +160,7 @@ async function crearTablas() {
             CREATE TABLE IF NOT EXISTS Pago (
                 Id_pago INT AUTO_INCREMENT PRIMARY KEY,
                 Fecha_pago DATE NOT NULL,
-                Monto_pago DECIMAL(10,2) NOT NULL,
+                Monto_pago INT NOT NULL,
                 Id_matricula INT,
                 FOREIGN KEY (Id_matricula) REFERENCES Matricula(Id_Matricula)
             )
@@ -170,9 +170,9 @@ async function crearTablas() {
         await connection.query(`
             CREATE TABLE IF NOT EXISTS Calificacion (
                 Id_calificacion INT AUTO_INCREMENT PRIMARY KEY,
-                NotaPractica DECIMAL(4,2),
-                NotaExamen DECIMAL(4,2),
-                NotaLaboratorio DECIMAL(4,2)
+                NotaPractica INT,
+                NotaExamen INT,
+                NotaLaboratorio INT
             )
         `);
 
@@ -192,7 +192,7 @@ async function crearTablas() {
         // Tabla Direccion_Estudiante (relacionada con Padre)
         await connection.query(`
             CREATE TABLE IF NOT EXISTS Direccion_Estudiante (
-                DNI_padre VARCHAR(20),
+                DNI_padre INT,
                 Id_Direccion INT,
                 PRIMARY KEY (DNI_padre, Id_Direccion),
                 FOREIGN KEY (DNI_padre) REFERENCES Padre(DNI_padre),
@@ -203,7 +203,7 @@ async function crearTablas() {
         // Tabla Detalle_Ocupacion
         await connection.query(`
             CREATE TABLE IF NOT EXISTS Detalle_Ocupacion (
-                DNI_padre VARCHAR(20),
+                DNI_padre INT,
                 Id_Ocupacion INT,
                 PRIMARY KEY (DNI_padre, Id_Ocupacion),
                 FOREIGN KEY (DNI_padre) REFERENCES Padre(DNI_padre),
@@ -214,7 +214,7 @@ async function crearTablas() {
         // Tabla Detalle_Matricula
         await connection.query(`
             CREATE TABLE IF NOT EXISTS Detalle_Matricula (
-                DNI_Padre VARCHAR(20),
+                DNI_Padre INT,
                 Id_grado INT,
                 Id_pago INT,
                 Id_Matricula INT,

@@ -317,8 +317,21 @@ async function crearTablas() {
             )
         `);
 
+        // Tabla Matricula_Estudiante (relación matrícula con estudiante, grado y padre)
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS Matricula_Estudiante (
+                Id_matricula INT,
+                Id_grado INT,
+                DNI_padre INT,
+                PRIMARY KEY (Id_matricula, Id_grado, DNI_padre),
+                FOREIGN KEY (Id_matricula) REFERENCES Matricula(Id_Matricula) ON DELETE CASCADE,
+                FOREIGN KEY (Id_grado) REFERENCES Grado(Id_grado),
+                FOREIGN KEY (DNI_padre) REFERENCES Padre(DNI_padre)
+            )
+        `);
+
         connection.release();
-        console.log('✅ Todas las tablas verificadas/creadas (22 tablas normalizadas)');
+        console.log('✅ Todas las tablas verificadas/creadas (23 tablas normalizadas)');
     } catch (error) {
         console.error('❌ Error al crear tablas:', error.message);
     }
